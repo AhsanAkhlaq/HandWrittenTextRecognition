@@ -2,11 +2,13 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import cv2
 import numpy as np
+import tensorflow as tf
 from tensorflow import keras
 from PIL import Image, ImageDraw, ImageTk
 import string
 import threading
 import time
+import io
 
 class HandwritingCanvas:
     def __init__(self, model_path=None):
@@ -100,7 +102,8 @@ class HandwritingCanvas:
         ttk.Checkbutton(recog_frame, text="Auto Recognize", variable=self.auto_var,
                        command=self.toggle_auto_recognize).pack(side=tk.LEFT, padx=(0, 10))
         
-        ttk.Button(recog_frame, text="Recognize Now", command=self.recognize_manual).pack(side=tk.LEFT)
+        ttk.Button(recog_frame, text="Recognize Now", command=self.recognize_manual).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(recog_frame, text="Debug View", command=self.show_debug_window).pack(side=tk.LEFT)
         
         # Canvas frame
         canvas_frame = ttk.LabelFrame(main_frame, text="Write Here", padding="5")
@@ -295,23 +298,27 @@ class HandwritingCanvas:
         img = img.convert('L')
         img_array = np.array(img)
         
-        # Invert colors (black text on white background -> white text on black background)
-        img_array = 255 - img_array
+        # Keep the image as is (black text on white background)
+        # Don't invert colors - EMNIST expects black text on white background
         
         return img_array
     
     def preprocess_image(self, img_array):
         """Preprocess the canvas image for character recognition"""
-        # Apply Gaussian blur to reduce noise
-        img = cv2.GaussianBlur(img_array, (3, 3), 0)
-        
-        # Apply threshold
+        # 1. Invert (white background, black text)
+        img = 255 - img_array
+
+
+        # 4. Apply Gaussian blur to reduce noise
+        img = cv2.GaussianBlur(img, (3, 3), 0)
+
+        # 5. Threshold to binary
         _, img = cv2.threshold(img, 50, 255, cv2.THRESH_BINARY)
-        
-        # Morphological operations to clean up
+
+        # 6. Morphological cleanup
         kernel = np.ones((2, 2), np.uint8)
         img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
-        
+
         return img
     
     def segment_characters(self, img):
@@ -322,54 +329,104 @@ class HandwritingCanvas:
         if not contours:
             return [], []
         
-        # Sort contours left to right
+        # Sort contours left to right based on their x-coordinate
         contours = sorted(contours, key=lambda c: cv2.boundingRect(c)[0])
         
         character_images = []
         bounding_boxes = []
         
-        # Calculate average height for filtering
-        heights = [cv2.boundingRect(c)[3] for c in contours]
-        if heights:
-            avg_height = np.mean(heights)
-            min_height = max(10, avg_height * 0.3)
-            max_height = avg_height * 2.5
+        # Calculate statistics for filtering
+        if contours:
+            areas = [cv2.contourArea(c) for c in contours]
+            heights = [cv2.boundingRect(c)[3] for c in contours]
+            widths = [cv2.boundingRect(c)[2] for c in contours]
+            
+            # Use median instead of mean for better filtering
+            median_area = np.median(areas)
+            median_height = np.median(heights)
+            median_width = np.median(widths)
+            
+            # Set thresholds based on median values
+            min_area = max(50, median_area * 0.1)
+            max_area = median_area * 10
+            min_height = max(15, median_height * 0.4)
+            max_height = median_height * 2.5
+            min_width = max(8, median_width * 0.3)
+            max_width = median_width * 3
         else:
-            min_height, max_height = 10, 200
+            min_area, max_area = 50, 10000
+            min_height, max_height = 15, 200
+            min_width, max_width = 8, 150
         
         for contour in contours:
+            # Get bounding rectangle
             x, y, w, h = cv2.boundingRect(contour)
+            area = cv2.contourArea(contour)
             
-            # Filter out noise and very small/large contours
-            if w < 8 or h < min_height or h > max_height:
+            # Apply multiple filters to remove noise
+            if (area < min_area or area > max_area or 
+                w < min_width or w > max_width or 
+                h < min_height or h > max_height):
                 continue
             
-            # Add some padding
-            padding = 5
-            x = max(0, x - padding)
-            y = max(0, y - padding)
-            w = min(img.shape[1] - x, w + 2*padding)
-            h = min(img.shape[0] - y, h + 2*padding)
+            # Aspect ratio filter (characters shouldn't be too wide or too narrow)
+            aspect_ratio = w / h
+            if aspect_ratio > 3.0 or aspect_ratio < 0.1:
+                continue
+            
+            # Add padding around character for better recognition
+            padding = max(3, min(w, h) // 4)
+            x_pad = max(0, x - padding)
+            y_pad = max(0, y - padding)
+            w_pad = min(img.shape[1] - x_pad, w + 2*padding)
+            h_pad = min(img.shape[0] - y_pad, h + 2*padding)
             
             # Extract character region
-            char_img = img[y:y+h, x:x+w]
+            char_img = img[y_pad:y_pad+h_pad, x_pad:x_pad+w_pad]
+            
+            # Skip if character is too small after padding
+            if char_img.shape[0] < 10 or char_img.shape[1] < 10:
+                continue
+            
+
+            char_img = cv2.flip(char_img, 1)
+            char_img = cv2.rotate(char_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             character_images.append(char_img)
-            bounding_boxes.append((x, y, w, h))
+            bounding_boxes.append((x_pad, y_pad, w_pad, h_pad))
         
         return character_images, bounding_boxes
     
     def prepare_character_for_model(self, char_img):
         """Prepare character image for the trained model"""
         # Resize to 28x28 (EMNIST standard)
-        char_img = cv2.resize(char_img, (28, 28))
+        char_img_resized = cv2.resize(char_img, (28, 28))
         
-        # Normalize pixel values
-        char_img = char_img.astype('float32') / 255.0
+        # EMNIST characters are typically centered and have specific orientation
+        # Apply additional preprocessing to match EMNIST format
         
-        # Add batch dimension
-        char_img = char_img.reshape(1, 28, 28, 1)
+        # Ensure proper centering
+        # Find the center of mass of the character
+        moments = cv2.moments(char_img_resized)
+        if moments['m00'] != 0:
+            cx = int(moments['m10'] / moments['m00'])
+            cy = int(moments['m01'] / moments['m00'])
+            
+            # Calculate shift needed to center the character
+            shift_x = 14 - cx  # 14 is center of 28x28 image
+            shift_y = 14 - cy
+            
+            # Create transformation matrix for centering
+            if abs(shift_x) > 2 or abs(shift_y) > 2:  # Only shift if significantly off-center
+                M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+                char_img_resized = cv2.warpAffine(char_img_resized, M, (28, 28))
         
-        return char_img
+        # Normalize pixel values to match EMNIST training data
+        char_img_resized = char_img_resized.astype('float32') / 255.0
+        
+        # Add batch dimension and channel dimension
+        char_img_resized = char_img_resized.reshape(1, 28, 28, 1)
+        
+        return char_img_resized
     
     def predict_character(self, char_img):
         """Predict single character using the trained model"""
@@ -407,7 +464,7 @@ class HandwritingCanvas:
             img_array = self.get_canvas_image_alternative()
             
             # Check if canvas has content
-            if np.max(img_array) == 0:
+            if np.max(img_array) == np.min(img_array):  # All pixels same value
                 self.word_label.config(text="")
                 self.result_text.delete(1.0, tk.END)
                 return
@@ -421,7 +478,7 @@ class HandwritingCanvas:
             if not char_images:
                 self.word_label.config(text="No characters detected")
                 self.result_text.delete(1.0, tk.END)
-                self.result_text.insert(tk.END, "No clear characters found.\nTry writing larger or clearer.")
+                self.result_text.insert(tk.END, "No clear characters found.\nTry writing larger or clearer.\nMake sure characters are well separated.")
                 return
             
             # Predict each character
@@ -448,11 +505,116 @@ class HandwritingCanvas:
             avg_confidence = np.mean([self.predict_character(ci)[1] for ci in char_images])
             self.result_text.insert(tk.END, f"\nAverage confidence: {avg_confidence:.3f}")
             
-            self.status_var.set(f"Recognized: '{recognized_word}' ({len(char_images)} chars)")
+            # Add tips for better recognition
+            if avg_confidence < 0.7:
+                self.result_text.insert(tk.END, "\n\nTips for better recognition:")
+                self.result_text.insert(tk.END, "\n• Write characters larger")
+                self.result_text.insert(tk.END, "\n• Separate characters clearly")
+                self.result_text.insert(tk.END, "\n• Use consistent stroke thickness")
+                self.result_text.insert(tk.END, "\n• Write more clearly")
+            
+            self.status_var.set(f"Recognized: '{recognized_word}' ({len(char_images)} chars, avg conf: {avg_confidence:.2f})")
             
         except Exception as e:
             self.status_var.set(f"Recognition error: {str(e)}")
             print(f"Recognition error: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def show_debug_window(self):
+        """Show debug window with processing steps"""
+        if self.model is None:
+            messagebox.showwarning("Warning", "Please load a model first")
+            return
+        
+        try:
+            # Get and process image
+            img_array = self.get_canvas_image_alternative()
+            processed_img = self.preprocess_image(img_array)
+            char_images, bboxes = self.segment_characters(processed_img)
+            
+            if not char_images:
+                messagebox.showinfo("Info", "No characters detected")
+                return
+            
+            # Create debug window
+            debug_window = tk.Toplevel(self.root)
+            debug_window.title("Debug - Processing Steps")
+            debug_window.geometry("1200x800")
+            
+            # Create notebook for tabs
+            import tkinter.ttk as ttk
+            notebook = ttk.Notebook(debug_window)
+            notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            
+            # Original image tab
+            orig_frame = ttk.Frame(notebook)
+            notebook.add(orig_frame, text="Original")
+            
+            # Convert to display format
+            orig_display = Image.fromarray(img_array).convert('RGB')
+            orig_display = orig_display.resize((400, 200))
+            orig_photo = ImageTk.PhotoImage(orig_display)
+            orig_label = tk.Label(orig_frame, image=orig_photo)
+            orig_label.image = orig_photo
+            orig_label.pack(pady=20)
+            
+            # Processed image tab
+            proc_frame = ttk.Frame(notebook)
+            notebook.add(proc_frame, text="Processed")
+            
+            proc_display = Image.fromarray(processed_img).convert('RGB')
+            proc_display = proc_display.resize((400, 200))
+            proc_photo = ImageTk.PhotoImage(proc_display)
+            proc_label = tk.Label(proc_frame, image=proc_photo)
+            proc_label.image = proc_photo
+            proc_label.pack(pady=20)
+            
+            # Character segments tab
+            char_frame = ttk.Frame(notebook)
+            notebook.add(char_frame, text="Characters")
+            
+            # Create scrollable frame for characters
+            canvas_scroll = tk.Canvas(char_frame)
+            scrollbar = ttk.Scrollbar(char_frame, orient="vertical", command=canvas_scroll.yview)
+            scrollable_frame = ttk.Frame(canvas_scroll)
+            
+            scrollable_frame.bind(
+                "<Configure>",
+                lambda e: canvas_scroll.configure(scrollregion=canvas_scroll.bbox("all"))
+            )
+            
+            canvas_scroll.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            canvas_scroll.configure(yscrollcommand=scrollbar.set)
+            
+            # Add character images
+            for i, char_img in enumerate(char_images):
+                char_pred, char_conf = self.predict_character(char_img)
+                
+                # Resize for display
+                char_display = cv2.resize(char_img, (56, 56))  # 2x size for better visibility
+                char_pil = Image.fromarray(char_display).convert('RGB')
+                char_photo = ImageTk.PhotoImage(char_pil)
+                
+                char_container = ttk.Frame(scrollable_frame)
+                char_container.pack(side=tk.LEFT, padx=10, pady=10)
+                
+                char_label = tk.Label(char_container, image=char_photo)
+                char_label.image = char_photo
+                char_label.pack()
+                
+                info_label = tk.Label(char_container, text=f"'{char_pred}'\n{char_conf:.3f}", 
+                                    font=("Arial", 10))
+                info_label.pack()
+            
+            canvas_scroll.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Debug error: {str(e)}")
+            print(f"Debug error: {e}")
+            import traceback
+            traceback.print_exc()
     
     def recognize_manual(self):
         """Manually trigger recognition"""
@@ -492,7 +654,7 @@ import io
 def main():
     """Main function to run the application"""
     # You can provide your model path here or load it through the GUI
-    model_path = "D:\\Workspace\\PYTHON\\ML_Models\\HandWrittenTextRecognition\\model\\emnist_cnn_best.h5"
+    model_path = None
     
     app = HandwritingCanvas(model_path)
     app.run()

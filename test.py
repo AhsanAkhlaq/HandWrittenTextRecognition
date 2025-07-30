@@ -65,6 +65,8 @@ class WordRecognizer:
             
             # Extract character region
             char_img = img[y:y+h, x:x+w]
+            char_img = cv2.flip(char_img, 1)
+            char_img = cv2.rotate(char_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
             character_images.append(char_img)
             bounding_boxes.append((x, y, w, h))
         
