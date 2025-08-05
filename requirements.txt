@@ -1,0 +1,11 @@
+# Core ML and Image Processing
+tensorflow>=2.10.0
+opencv-python>=4.7.0
+numpy>=1.21.0
+Pillow>=9.0.0
+
+# GUI (usually comes with Python, but listed for completeness)
+# tkinter is built-in with Python, no installation needed
+
+# Optional: For better performance
+# tensorflow-gpu>=2.10.0  # Uncomment if you have CUDA-compatible GPU
