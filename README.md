@@ -1,5 +1,7 @@
 # Handwritten Text Recognition using EMNIST Datasets
 
+<img width="1237" height="685" alt="image" src="https://github.com/user-attachments/assets/86a80604-40da-49e8-8f29-97a4bb20d253" />
+
 This project demonstrates handwritten text recognition using deep learning on two different datasets from the EMNIST (Extended MNIST) dataset collection:
 
 * **EMNIST ByClass** (62 classes: digits + uppercase + lowercase letters)
@@ -89,7 +91,11 @@ Both models share the **same CNN-based architecture** and are evaluated on accur
 
 A custom Python-based **Tkinter Canvas GUI** is included, allowing you to **draw characters or words**, and the model will predict the handwritten text in real-time using the trained model.
 
-* Preprocessing: Image mirroring and rotation for correct orientation
 * Uses the trained model to classify drawn characters
+  
+<img width="1238" height="745" alt="image" src="https://github.com/user-attachments/assets/8628efcc-89df-483e-85c9-46a8bf45f473" />
+
+<img width="1255" height="721" alt="image" src="https://github.com/user-attachments/assets/0d59fe2c-1151-4825-80c3-a41cc3200177" />
+
 
 ---
