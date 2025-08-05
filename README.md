@@ -92,8 +92,86 @@ Both models share the **same CNN-based architecture** and are evaluated on accur
 A custom Python-based **Tkinter Canvas GUI** is included, allowing you to **draw characters or words**, and the model will predict the handwritten text in real-time using the trained model.
 
 * Uses the trained model to classify drawn characters
+
   
 <img width="1238" height="745" alt="image" src="https://github.com/user-attachments/assets/8628efcc-89df-483e-85c9-46a8bf45f473" />
+
+
+---
+
+## ✨ Features
+
+- **Real-time Drawing**: Draw characters directly on the canvas.
+- **Image Loading**: Load handwritten images from your files.
+- **Character Segmentation**: Automatically detects and separates individual characters from a word or sentence.
+- **Confidence Scoring**: Displays model prediction confidence for each recognized character.
+- **Visual Feedback**: Shows segmented character images alongside predictions for better understanding.
+- **Custom Label Mapping**: Supports digits (0-9), uppercase letters (A-Z), and select lowercase letters (a, b, d, e, f, g, h, n, q, r, t).
+
+---
+
+## 🚀 Quick Start
+
+1. **Install dependencies**  
+   ```bash
+   pip install -r requirements.txt
+
+## ✨ Features
+
+* **Real-time Drawing**: Draw characters directly on the canvas.
+* **Image Loading**: Load handwritten images from your files.
+* **Character Segmentation**: Automatically detects and separates individual characters from a word or sentence.
+* **Confidence Scoring**: Displays model prediction confidence for each recognized character.
+* **Visual Feedback**: Shows segmented character images alongside predictions for better understanding.
+* **Custom Label Mapping**: Supports digits (0-9), uppercase letters (A-Z), and select lowercase letters (a, b, d, e, f, g, h, n, q, r, t).
+
+---
+
+## 🚀 Quick Start
+
+1. **Install dependencies**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Place your trained EMNIST model**
+   Put your `.h5` model file here:
+
+   ```
+   model/emnist_balanced_cnn_best.h5
+   ```
+
+3. **Run the application**
+
+   ```bash
+   python handwriting_app.py
+   ```
+
+4. **Start drawing or load an image**
+   Use the canvas or load an image to recognize handwritten text!
+
+---
+
+## 🛠️ Tech Stack
+
+* **GUI**: Tkinter (Python built-in)
+* **ML Framework**: TensorFlow / Keras
+* **Image Processing**: OpenCV, PIL
+* **Model**: CNN trained on EMNIST Balanced dataset
+* **Supported Characters**: `0-9`, `A-Z`, `a, b, d, e, f, g, h, n, q, r, t`
+
+---
+
+## 📊 Model Support
+
+This canvas app is designed for CNN models trained on the **EMNIST Balanced** dataset.
+
+* **Supported Character Classes**: 47
+* **Character Types**: Digits, Uppercase Letters, and select Lowercase Letters
+* Optimized for recognition in real-time use cases with clean segmentation and confidence visualization.
+
+---
 
 <img width="1255" height="721" alt="image" src="https://github.com/user-attachments/assets/0d59fe2c-1151-4825-80c3-a41cc3200177" />
 
